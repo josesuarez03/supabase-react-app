@@ -9,67 +9,88 @@ function App() {
   const [posts, setPosts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Memoizamos fetchPosts con useCallback para evitar recreaciones innecesarias
   const fetchPosts = useCallback(async () => {
-    setLoading(true);
-    let query = supabase.from('post').select('*').order('timestamp', { ascending: false });
-    
-    if (searchTerm) {
-      query = query.ilike('title', `%${searchTerm}%`);
-    }
+    try {
+      setLoading(true);
+      setError(null);
 
-    const { data, error } = await query;
-    
-    if (error) {
-      console.error('Error fetching posts:', error);
-    } else {
+      let query = supabase
+        .from('post')
+        .select('id, title, body, created_at')
+        .order('created_at', { ascending: false });
+      
+      if (searchTerm) {
+        query = query.ilike('title', `%${searchTerm}%`);
+      }
+
+      const { data, error } = await query;
+      
+      if (error) {
+        throw error;
+      }
+
       setPosts(data || []);
+    } catch (err) {
+      console.error('Error detallado:', err);
+      setError(err.message);
+      setPosts([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [searchTerm]); // searchTerm como dependencia
+  }, [searchTerm]);
 
-  // Efecto para cargar posts iniciales y cuando cambia searchTerm
   useEffect(() => {
     fetchPosts();
-  }, [fetchPosts]); // fetchPosts como dependencia
+  }, [fetchPosts]);
 
-  const handleSearch = (term) => {
+  // Función handleSearch definida
+  const handleSearch = useCallback((term) => {
     setSearchTerm(term);
-  };
+  }, []);
 
   const addPost = async (postData) => {
-    const { title, body } = postData;
-    const { data, error } = await supabase
-      .from('post')
-      .insert([{ 
-        title, 
-        body, 
-        timestamp: new Date().toISOString() 
-      }])
-      .single();
+    try {
+      setError(null);
+      const { title, body } = postData;
+      
+      const { data, error } = await supabase
+        .from('post')
+        .insert([{ 
+          title, 
+          body, 
+          created_at: new Date().toISOString() 
+        }])
+        .select();
 
-    if (error) {
-      console.error('Error adding post:', error);
-      return false;
-    } else {
-      setPosts([data, ...posts]);
+      if (error) throw error;
+
+      setPosts(prevPosts => [data[0], ...prevPosts]);
       return true;
+    } catch (err) {
+      console.error('Error al agregar post:', err);
+      setError(err.message);
+      return false;
     }
   };
 
   const deletePost = async (id) => {
-    const { error } = await supabase
-      .from('post')
-      .delete()
-      .eq('id', id);
+    try {
+      setError(null);
+      const { error } = await supabase
+        .from('post')
+        .delete()
+        .eq('id', id);
 
-    if (error) {
-      console.error('Error deleting post:', error);
-      return false;
-    } else {
+      if (error) throw error;
+
       setPosts(posts.filter((post) => post.id !== id));
       return true;
+    } catch (err) {
+      console.error('Error al eliminar post:', err);
+      setError(err.message);
+      return false;
     }
   };
 
@@ -79,8 +100,16 @@ function App() {
       <div className="space-y-6">
         <PostForm onPostAdded={addPost} />
         <SearchBar onSearch={handleSearch} />
+        
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+            <strong className="font-bold">Error: </strong>
+            <span className="block sm:inline">{error}</span>
+          </div>
+        )}
+
         {loading ? (
-          <p>Cargando posts...</p>
+          <p className="text-center text-gray-600">Cargando posts...</p>
         ) : (
           <PostList posts={posts} onDeletePost={deletePost} />
         )}
